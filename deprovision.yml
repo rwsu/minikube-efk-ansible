@@ -1,0 +1,9 @@
+- hosts: master
+  remote_user: root
+  tasks:
+
+    - name: delete minikube vm
+      shell: minikube delete
+
+    - name: delete minikube file
+      shell: rm /usr/local/bin/minikube

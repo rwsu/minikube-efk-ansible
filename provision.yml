@@ -1,0 +1,86 @@
+- hosts: all
+  remote_user: root
+  vars:
+    kubevirt_version: "0.11.0"
+  tasks:
+
+    - name: add kubernetes.repo
+      yum_repository:
+        name: kubernetes
+        description: upstream kubernetes repo
+        baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+        enabled: yes
+        gpgcheck: yes
+        repo_gpgcheck: yes
+        gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+
+    - name: install kubectl
+      yum:
+        name: kubectl
+        state: installed
+
+    - name: dl and install minikube
+      shell: curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && sudo install minikube-linux-amd64 /usr/local/bin/minikube
+      args:
+        creates: /usr/local/bin/minikube
+
+    - name: install minikube kvm driver
+      shell: curl -LO https://storage.googleapis.com/minikube/releases/latest/docker-machine-driver-kvm2 && sudo install docker-machine-driver-kvm2 /usr/local/bin/
+      args:
+        creates: /usr/local/bin/docker-machine-driver-kvm2
+
+    - name: start minikube
+      command: minikube start --vm-driver kvm2 --memory 8096 --cpus 3
+
+    - name: enable efk
+      command: minikube addons enable efk
+
+    - name: wait for elasticsearch-logging pod Running status
+      shell: kubectl get pods --all-namespaces | grep elasticsearch
+      register: elasticsearch_status
+      until: elasticsearch_status.stdout.find("Running") != -1
+      retries: 30
+      delay: 10
+
+      # Insufficient devices.kubevirt.io/vhost-net in pod creating VM
+    - name: apply emulation
+      command:  kubectl create configmap -n kube-system kubevirt-config --from-literal debug.useEmulation=true
+
+    - name: install kubevirt
+      command: "kubectl apply -f https://github.com/kubevirt/kubevirt/releases/download/v{{ kubevirt_version }}/kubevirt.yaml"
+
+    - name: wait for virt-controller to be running
+      shell: kubectl get pods --all-namespaces | grep virt-controller
+      register: virt_controller_status
+      until: virt_controller_status.stdout.find("Running") != -1
+      retries: 30
+      delay: 10
+
+    - name: wait for virt-api to be running
+      shell: kubectl get pods --all-namespaces | grep virt-api
+      register: virt_api_status
+      until: virt_api_status.stdout.find("Running") != -1
+      retries: 30
+      delay: 10
+
+    - name: wait for virt-handler to be running
+      shell: kubectl get pods --all-namespaces | grep virt-handler
+      register: virt_handler_status
+      until: virt_handler_status.stdout.find("Running") != -1
+      retries: 30
+      delay: 10
+
+    - name: create VM
+      command: kubectl apply -f https://raw.githubusercontent.com/kubevirt/demo/master/manifests/vm.yaml
+
+    - name: install virtctl
+      shell: "curl -L -o virtctl https://github.com/kubevirt/kubevirt/releases/download/v{{ kubevirt_version }}/virtctl-v{{ kubevirt_version }}-linux-amd64 && chmod +x virtctl"
+
+    - name: start VM
+      command: ./virtctl start testvm
+
+# open dashboard
+# minikube dashboard
+
+# open kibana
+# minikube service kibana-logging -n kube-system
