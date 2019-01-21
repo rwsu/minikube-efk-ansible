@@ -1,7 +1,7 @@
 - hosts: all
   remote_user: root
   vars:
-    kubevirt_version: "0.11.0"
+    kubevirt_version: "0.13.0"
   tasks:
 
     - name: add kubernetes.repo
@@ -42,36 +42,53 @@
       retries: 30
       delay: 10
 
+    - name: create kubevirt namespace
+      command:  kubectl create namespace kubevirt
       # Insufficient devices.kubevirt.io/vhost-net in pod creating VM
     - name: apply emulation
-      command:  kubectl create configmap -n kube-system kubevirt-config --from-literal debug.useEmulation=true
+      command:  kubectl create configmap -n kubevirt kubevirt-config --from-literal debug.useEmulation=true
 
-    - name: install kubevirt
-      command: "kubectl apply -f https://github.com/kubevirt/kubevirt/releases/download/v{{ kubevirt_version }}/kubevirt.yaml"
+    - name: install kubevirt-operator
+      command: "kubectl apply -f https://github.com/kubevirt/kubevirt/releases/download/v{{ kubevirt_version }}/kubevirt-operator.yaml"
+
+    - name: install kubevirt-cr
+      command: "kubectl apply -f https://github.com/kubevirt/kubevirt/releases/download/v{{ kubevirt_version }}/kubevirt-cr.yaml"
 
     - name: wait for virt-controller to be running
-      shell: kubectl get pods --all-namespaces | grep virt-controller
+      shell: kubectl get pods -n kubevirt | grep virt-controller
       register: virt_controller_status
       until: virt_controller_status.stdout.find("Running") != -1
       retries: 30
       delay: 10
 
     - name: wait for virt-api to be running
-      shell: kubectl get pods --all-namespaces | grep virt-api
+      shell: kubectl get pods -n kubevirt | grep virt-api
       register: virt_api_status
       until: virt_api_status.stdout.find("Running") != -1
       retries: 30
       delay: 10
 
     - name: wait for virt-handler to be running
-      shell: kubectl get pods --all-namespaces | grep virt-handler
+      shell: kubectl get pods -n kubevirt | grep virt-handler
       register: virt_handler_status
       until: virt_handler_status.stdout.find("Running") != -1
       retries: 30
       delay: 10
 
+    - name: query virt-api's clusterIP
+      shell: kubectl get services virt-api -n kubevirt  -o yaml | grep clusterIP | cut -f 4 -d " "
+      register: virt_api_cluster_ip
+
+    - debug: var=virt_api_cluster_ip
+
+    # - name: wait for virt_api port 443 to be open
+    #   wait_for:
+    #     host: "{{ virt_api_cluster_ip.stdout }}"
+    #     port: 443
+
     - name: create VM
-      command: kubectl apply -f https://raw.githubusercontent.com/kubevirt/demo/master/manifests/vm.yaml
+      #command: kubectl apply -f https://raw.githubusercontent.com/kubevirt/demo/master/manifests/vm.yaml
+      command: kubectl apply -f https://raw.githubusercontent.com/kubevirt/demo/79947333cb180edee94fb54497da84d5a40df374/manifests/vm.yaml
 
     - name: install virtctl
       shell: "curl -L -o virtctl https://github.com/kubevirt/kubevirt/releases/download/v{{ kubevirt_version }}/virtctl-v{{ kubevirt_version }}-linux-amd64 && chmod +x virtctl"
@@ -83,4 +100,5 @@
 # minikube dashboard
 
 # open kibana
+# requires xorg, wayland doesn't work
 # minikube service kibana-logging -n kube-system
